@@ -44,7 +44,6 @@ func (s *StandAloneStorage) Reader(ctx *kvrpcpb.Context) (storage.StorageReader,
 func (s *StandAloneStorage) Write(ctx *kvrpcpb.Context, batch []storage.Modify) error {
 	// Your Code Here (1).
 	wb := engine_util.WriteBatch{}
-	wb.Reset()
 	for _, modify := range batch {
 		switch modify.Data.(type) {
 		case storage.Put:
@@ -62,10 +61,12 @@ type BaseStorageReader struct {
 
 func (rd *BaseStorageReader) GetCF(cf string, key []byte) ([]byte, error) {
 	item, err := rd.txn.Get(engine_util.KeyWithCF(cf, key))
-	if err != nil {
+	if err == badger.ErrKeyNotFound {
+		return nil, nil
+	}else if err != nil {
 		return nil, err
 	}
-	return item.Value()
+	return item.ValueCopy(nil)
 }
 
 func (rd *BaseStorageReader) IterCF(cf string) engine_util.DBIterator {

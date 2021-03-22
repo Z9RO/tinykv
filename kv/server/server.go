@@ -37,26 +37,20 @@ func NewServer(storage storage.Storage) *Server {
 // Raw API.
 func (server *Server) RawGet(_ context.Context, req *kvrpcpb.RawGetRequest) (*kvrpcpb.RawGetResponse, error) {
 	// Your Code Here (1).
-	resp := &kvrpcpb.RawGetResponse{
-		RegionError:          nil,
-		Error:                "",
-		Value:                nil,
-		NotFound:             false,
-		XXX_NoUnkeyedLiteral: struct{}{},
-		XXX_unrecognized:     nil,
-		XXX_sizecache:        0,
-	}
+	resp := &kvrpcpb.RawGetResponse{}
 	reader, err := server.storage.Reader(req.Context)
 	if err != nil {
 		return resp, err
 	}
+	defer reader.Close()
+
 	resp.Value, err = reader.GetCF(req.GetCf(), req.GetKey())
-	if err!=nil {
-		resp.Error = err.Error()
-		return resp, err
+	if resp.Value == nil {
+		resp.NotFound = true
+		return resp, nil
 	}
-	reader.Close()
-	return resp, nil
+
+	return resp, err
 }
 
 func (server *Server) RawPut(_ context.Context, req *kvrpcpb.RawPutRequest) (*kvrpcpb.RawPutResponse, error) {
@@ -83,8 +77,8 @@ func (server *Server) RawDelete(_ context.Context, req *kvrpcpb.RawDeleteRequest
 	batch := []storage.Modify{
 		{
 			Data: storage.Delete{
-				Key:   req.GetKey(),
-				Cf:    req.GetCf(),
+				Key: req.GetKey(),
+				Cf:  req.GetCf(),
 			},
 		},
 	}
@@ -99,18 +93,24 @@ func (server *Server) RawScan(_ context.Context, req *kvrpcpb.RawScanRequest) (*
 		return nil, err
 	}
 	defer reader.Close()
+
 	iter := reader.IterCF(req.GetCf())
 	defer iter.Close()
 	iter.Seek(req.GetStartKey())
+
 	resp := &kvrpcpb.RawScanResponse{}
 	limit := req.GetLimit()
-	resp.Kvs = make([]*kvrpcpb.KvPair, limit)
+	resp.Kvs = make([]*kvrpcpb.KvPair, 0, limit)
 	for i := uint32(0); i < limit && iter.Valid(); i++ {
 		item := iter.Item()
-		value, _ := item.Value()
+		value, err1 := item.ValueCopy(nil)
+		if err1 != nil {
+			return resp, err1
+		}
+		key := item.KeyCopy(nil)
 		kvPair := &kvrpcpb.KvPair{
 			Error: nil,
-			Key:   item.Key(),
+			Key:   key,
 			Value: value,
 		}
 		resp.Kvs = append(resp.Kvs, kvPair)
