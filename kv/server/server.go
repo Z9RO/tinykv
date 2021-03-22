@@ -37,17 +37,17 @@ func NewServer(storage storage.Storage) *Server {
 // Raw API.
 func (server *Server) RawGet(_ context.Context, req *kvrpcpb.RawGetRequest) (*kvrpcpb.RawGetResponse, error) {
 	// Your Code Here (1).
-	resp := &kvrpcpb.RawGetResponse{}
 	reader, err := server.storage.Reader(req.Context)
 	if err != nil {
-		return resp, err
+		return nil, err
 	}
 	defer reader.Close()
 
+	resp := &kvrpcpb.RawGetResponse{}
 	resp.Value, err = reader.GetCF(req.GetCf(), req.GetKey())
 	if resp.Value == nil {
 		resp.NotFound = true
-		return resp, nil
+		err = nil
 	}
 
 	return resp, err
@@ -107,10 +107,9 @@ func (server *Server) RawScan(_ context.Context, req *kvrpcpb.RawScanRequest) (*
 		if err1 != nil {
 			return resp, err1
 		}
-		key := item.KeyCopy(nil)
 		kvPair := &kvrpcpb.KvPair{
 			Error: nil,
-			Key:   key,
+			Key:   item.KeyCopy(nil),
 			Value: value,
 		}
 		resp.Kvs = append(resp.Kvs, kvPair)
