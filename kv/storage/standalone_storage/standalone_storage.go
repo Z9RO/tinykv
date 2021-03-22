@@ -44,17 +44,16 @@ func (s *StandAloneStorage) Reader(ctx *kvrpcpb.Context) (storage.StorageReader,
 func (s *StandAloneStorage) Write(ctx *kvrpcpb.Context, batch []storage.Modify) error {
 	// Your Code Here (1).
 	wb := engine_util.WriteBatch{}
-
+	wb.Reset()
 	for _, modify := range batch {
-		wb.Reset()
-		wb.SetCF(modify.Cf(), modify.Key(), modify.Value())
-		err := wb.WriteToDB(s.db)
-		if err != nil {
-			return err
+		switch modify.Data.(type) {
+		case storage.Put:
+			wb.SetCF(modify.Cf(), modify.Key(), modify.Value())
+		case storage.Delete:
+			wb.DeleteCF(modify.Cf(), modify.Key())
 		}
 	}
-
-	return nil
+	return wb.WriteToDB(s.db)
 }
 
 type BaseStorageReader struct {
