@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-
 	"github.com/pingcap-incubator/tinykv/kv/coprocessor"
 	"github.com/pingcap-incubator/tinykv/kv/storage"
 	"github.com/pingcap-incubator/tinykv/kv/storage/raft_storage"
@@ -38,12 +37,40 @@ func NewServer(storage storage.Storage) *Server {
 // Raw API.
 func (server *Server) RawGet(_ context.Context, req *kvrpcpb.RawGetRequest) (*kvrpcpb.RawGetResponse, error) {
 	// Your Code Here (1).
-	return nil, nil
+	resp := &kvrpcpb.RawGetResponse{
+		RegionError:          nil,
+		Error:                "",
+		Value:                nil,
+		NotFound:             false,
+		XXX_NoUnkeyedLiteral: struct{}{},
+		XXX_unrecognized:     nil,
+		XXX_sizecache:        0,
+	}
+	reader, err := server.storage.Reader(req.Context)
+	if err != nil {
+		return resp, err
+	}
+	resp.Value, err = reader.GetCF(req.GetCf(), req.GetKey())
+	resp.Error = err.Error()
+	reader.Close()
+	return resp, nil
 }
 
 func (server *Server) RawPut(_ context.Context, req *kvrpcpb.RawPutRequest) (*kvrpcpb.RawPutResponse, error) {
 	// Your Code Here (1).
-	return nil, nil
+	resp := &kvrpcpb.RawPutResponse{}
+
+	batch := []storage.Modify{
+		{
+			Data: storage.Put{
+				Key:   req.GetKey(),
+				Value: req.GetValue(),
+				Cf:    req.GetCf(),
+			},
+		},
+	}
+
+	return resp, server.storage.Write(req.GetContext(), batch)
 }
 
 func (server *Server) RawDelete(_ context.Context, req *kvrpcpb.RawDeleteRequest) (*kvrpcpb.RawDeleteResponse, error) {
@@ -53,7 +80,29 @@ func (server *Server) RawDelete(_ context.Context, req *kvrpcpb.RawDeleteRequest
 
 func (server *Server) RawScan(_ context.Context, req *kvrpcpb.RawScanRequest) (*kvrpcpb.RawScanResponse, error) {
 	// Your Code Here (1).
-	return nil, nil
+	reader, err := server.storage.Reader(req.Context)
+	if err != nil {
+		return nil, err
+	}
+	defer reader.Close()
+	iter := reader.IterCF(req.GetCf())
+	defer iter.Close()
+	iter.Seek(req.GetStartKey())
+	resp := &kvrpcpb.RawScanResponse{}
+	limit := req.GetLimit()
+	resp.Kvs = make([]*kvrpcpb.KvPair, limit)
+	for i := uint32(0); i < limit && iter.Valid(); i++ {
+		item := iter.Item()
+		value, _ := item.Value()
+		kvPair := &kvrpcpb.KvPair{
+			Error: nil,
+			Key:   item.Key(),
+			Value: value,
+		}
+		resp.Kvs = append(resp.Kvs, kvPair)
+		iter.Next()
+	}
+	return resp, nil
 }
 
 // Raft commands (tinykv <-> tinykv)
