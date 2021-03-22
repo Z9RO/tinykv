@@ -51,7 +51,10 @@ func (server *Server) RawGet(_ context.Context, req *kvrpcpb.RawGetRequest) (*kv
 		return resp, err
 	}
 	resp.Value, err = reader.GetCF(req.GetCf(), req.GetKey())
-	resp.Error = err.Error()
+	if err!=nil {
+		resp.Error = err.Error()
+		return resp, err
+	}
 	reader.Close()
 	return resp, nil
 }
@@ -75,7 +78,18 @@ func (server *Server) RawPut(_ context.Context, req *kvrpcpb.RawPutRequest) (*kv
 
 func (server *Server) RawDelete(_ context.Context, req *kvrpcpb.RawDeleteRequest) (*kvrpcpb.RawDeleteResponse, error) {
 	// Your Code Here (1).
-	return nil, nil
+	resp := &kvrpcpb.RawDeleteResponse{}
+
+	batch := []storage.Modify{
+		{
+			Data: storage.Delete{
+				Key:   req.GetKey(),
+				Cf:    req.GetCf(),
+			},
+		},
+	}
+
+	return resp, server.storage.Write(req.GetContext(), batch)
 }
 
 func (server *Server) RawScan(_ context.Context, req *kvrpcpb.RawScanRequest) (*kvrpcpb.RawScanResponse, error) {
