@@ -1,8 +1,10 @@
 package standalone_storage
 
 import (
+	"github.com/Connor1996/badger"
 	"github.com/pingcap-incubator/tinykv/kv/config"
 	"github.com/pingcap-incubator/tinykv/kv/storage"
+	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
 )
 
@@ -10,11 +12,16 @@ import (
 // communicate with other nodes and all data is stored locally.
 type StandAloneStorage struct {
 	// Your Data Here (1).
+	db *badger.DB
 }
 
 func NewStandAloneStorage(conf *config.Config) *StandAloneStorage {
 	// Your Code Here (1).
-	return nil
+	kvDb := engine_util.CreateDB(conf.DBPath, false)
+	s := &StandAloneStorage{
+		kvDb,
+	}
+	return s
 }
 
 func (s *StandAloneStorage) Start() error {
@@ -24,15 +31,48 @@ func (s *StandAloneStorage) Start() error {
 
 func (s *StandAloneStorage) Stop() error {
 	// Your Code Here (1).
-	return nil
+	return s.db.Close()
 }
 
 func (s *StandAloneStorage) Reader(ctx *kvrpcpb.Context) (storage.StorageReader, error) {
 	// Your Code Here (1).
-	return nil, nil
+	txn := s.db.NewTransaction(false)
+	reader := &BaseStorageReader{txn}
+	return reader, nil
 }
 
 func (s *StandAloneStorage) Write(ctx *kvrpcpb.Context, batch []storage.Modify) error {
 	// Your Code Here (1).
+	wb := engine_util.WriteBatch{}
+
+	for _, modify := range batch {
+		wb.Reset()
+		wb.SetCF(modify.Cf(), modify.Key(), modify.Value())
+		err := wb.WriteToDB(s.db)
+		if err != nil {
+			return err
+		}
+	}
+
 	return nil
+}
+
+type BaseStorageReader struct {
+	txn *badger.Txn
+}
+
+func (rd *BaseStorageReader) GetCF(cf string, key []byte) ([]byte, error) {
+	item, err := rd.txn.Get(engine_util.KeyWithCF(cf, key))
+	if err != nil {
+		return nil, err
+	}
+	return item.Value()
+}
+
+func (rd *BaseStorageReader) IterCF(cf string) engine_util.DBIterator {
+	return engine_util.NewCFIterator(cf, rd.txn)
+}
+
+func (rd *BaseStorageReader) Close() {
+	rd.txn.Discard()
 }
